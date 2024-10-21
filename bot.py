@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 from dotenv import load_dotenv
 
+#logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -18,7 +19,7 @@ DOWNLOAD_FOLDER = './downloads/'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB, this is a rough estimate though
+TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  #50MB, but it's a rough estimate
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Send me a YouTube link, and I'll download the video or audio for you!")
@@ -94,10 +95,9 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
     split_output_format = f"{base_filename}_part_%03d.mp4"
 
     try:
-        # Split video using ffmpeg
         command = [
             'ffmpeg', '-i', filepath, '-c', 'copy', '-map', '0',
-            '-f', 'segment', '-segment_time', '600', #change segment length according to desired upload 
+            '-f', 'segment', '-segment_time', '600',
             '-reset_timestamps', '1', split_output_format
         ]
         subprocess.run(command, check=True)
@@ -111,14 +111,14 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
                 while retries < 3:
                     try:
                         await upload_video(part_file, update, context)
-                        break  
+                        break
                     except Exception as e:
                         retries += 1
                         logger.warning(f"Error uploading {part_file}: {str(e)}, retrying ({retries}/3)...")
-                        await asyncio.sleep(2)  
+                        await asyncio.sleep(2)
                 if retries == 3:
                     logger.error(f"Failed to upload {part_file} after 3 retries. Deleting...")
-                    os.remove(part_file)  
+                    os.remove(part_file)
                     await update.message.reply_text(f"Failed to upload {part_file} after 3 retries, deleting the file.")
                 part_number += 1
             else:
@@ -188,7 +188,7 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
 def main():
     load_dotenv()
     api_key = os.getenv('API_KEY')
-    TOKEN = api_key  # Replace with your actual bot token, remove above two lines if pasting api key into bot.py
+    TOKEN = api_key  #replace with bot token, remove above two lines
     print(TOKEN)
     application = Application.builder().token(TOKEN).read_timeout(300).write_timeout(300).build()
     application.add_handler(CommandHandler("start", start))
