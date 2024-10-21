@@ -7,21 +7,18 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 from dotenv import load_dotenv
 
-# Logging configuration
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Download folder
 DOWNLOAD_FOLDER = './downloads/'
 
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-# Maximum upload size for Telegram (50MB)
-TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
+TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB, this is a rough estimate though
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Send me a YouTube link, and I'll download the video or audio for you!")
@@ -69,12 +66,10 @@ async def download_video(update: Update, context: CallbackContext) -> None:
             if os.path.exists(output_file):
                 file_size = os.path.getsize(output_file)
 
-                # If the file is larger than Telegram's 50MB limit, split the video
                 if file_size > TELEGRAM_UPLOAD_LIMIT:
                     await update.message.reply_text("Video is larger than 50MB. Splitting the video into parts...")
                     await split_and_upload_video(output_file, update, context)
                 else:
-                    # If it's smaller than 50MB, upload the video directly
                     await upload_video(output_file, update, context)
             else:
                 await update.message.reply_text("Failed to find the downloaded video file.")
@@ -95,7 +90,6 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
     """Splits the video into parts and uploads them."""
     logger.info(f"Splitting video: {filepath}")
 
-    # Create output format for split files
     base_filename = os.path.splitext(filepath)[0]
     split_output_format = f"{base_filename}_part_%03d.mp4"
 
@@ -103,13 +97,12 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
         # Split video using ffmpeg
         command = [
             'ffmpeg', '-i', filepath, '-c', 'copy', '-map', '0',
-            '-f', 'segment', '-segment_time', '600',  # Split into 1-minute segments
+            '-f', 'segment', '-segment_time', '600', #change segment length according to desired upload 
             '-reset_timestamps', '1', split_output_format
         ]
         subprocess.run(command, check=True)
         logger.info("Video splitting completed.")
 
-        # Upload each part sequentially
         part_number = 0
         while True:
             part_file = split_output_format % part_number
@@ -118,20 +111,19 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
                 while retries < 3:
                     try:
                         await upload_video(part_file, update, context)
-                        break  # Exit the retry loop on success
+                        break  
                     except Exception as e:
                         retries += 1
                         logger.warning(f"Error uploading {part_file}: {str(e)}, retrying ({retries}/3)...")
-                        await asyncio.sleep(2)  # Wait before retrying
+                        await asyncio.sleep(2)  
                 if retries == 3:
                     logger.error(f"Failed to upload {part_file} after 3 retries. Deleting...")
-                    os.remove(part_file)  # Delete the part file after 3 failed attempts
+                    os.remove(part_file)  
                     await update.message.reply_text(f"Failed to upload {part_file} after 3 retries, deleting the file.")
                 part_number += 1
             else:
                 break
 
-        # Delete the original file after splitting and uploading
         os.remove(filepath)
         logger.info(f"Deleted original video file: {filepath}")
     except Exception as e:
@@ -196,7 +188,7 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
 def main():
     load_dotenv()
     api_key = os.getenv('API_KEY')
-    TOKEN = api_key  # Replace with your actual bot token
+    TOKEN = api_key  # Replace with your actual bot token, remove above two lines if pasting api key into bot.py
     print(TOKEN)
     application = Application.builder().token(TOKEN).read_timeout(300).write_timeout(300).build()
     application.add_handler(CommandHandler("start", start))
