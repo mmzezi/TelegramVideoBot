@@ -5,6 +5,7 @@ import subprocess
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
+from dotenv import load_dotenv
 
 # Logging configuration
 logging.basicConfig(
@@ -193,7 +194,10 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
         os.remove(output_file)
 
 def main():
-    TOKEN = ''  # Replace with your actual bot token
+    load_dotenv()
+    api_key = os.getenv('API_KEY')
+    TOKEN = api_key  # Replace with your actual bot token
+    print(TOKEN)
     application = Application.builder().token(TOKEN).read_timeout(300).write_timeout(300).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("download_video", download_video))
