@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 from dotenv import load_dotenv
 
-#logging
+#logging configuration
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -15,13 +15,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_FOLDER = './downloads/'
-CHUNK_LENGTH = '540' #10min is the sweet spot (under 50mb per chunk, so it doesn't split it recursively)
-AUDIO_CHUNK_LENGTH = '1800' #30min for audio
+CHUNK_LENGTH = '540'  #10 min is the sweet spot (under 50MB per chunk)
 
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-TELEGRAM_UPLOAD_LIMIT = 49 * 1024 * 1024  # a bit under 50MB
+TELEGRAM_UPLOAD_LIMIT = 49 * 1024 * 1024  #a bit under 50
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Send me a YouTube link, and I'll download the video or audio for you!")
@@ -63,6 +62,7 @@ async def download_video(update: Update, context: CallbackContext) -> None:
             info_dict = ydl.extract_info(video_url, download=True)
             logger.info(f"Successfully downloaded {video_url}")
 
+            title = info_dict.get('title', 'video')
             output_file = f'{DOWNLOAD_FOLDER}video.mp4'
 
             if os.path.exists(output_file):
@@ -70,9 +70,9 @@ async def download_video(update: Update, context: CallbackContext) -> None:
 
                 if file_size > TELEGRAM_UPLOAD_LIMIT:
                     await update.message.reply_text("Video is larger than 50MB. Splitting the video into parts...")
-                    await split_and_upload_video(output_file, update, context)
+                    await split_and_upload_video(output_file, update, context, title)
                 else:
-                    await upload_video(output_file, update, context)
+                    await upload_video(output_file, update, context, title, 0)
             else:
                 await update.message.reply_text("Failed to find the downloaded video file.")
                 logger.error("Failed to find the downloaded video file.")
@@ -81,19 +81,25 @@ async def download_video(update: Update, context: CallbackContext) -> None:
         logger.error(f"Failed to download video: {str(e)}")
         await update.message.reply_text(f"Failed to download the video: {str(e)}")
 
-async def upload_video(output_file, update: Update, context: CallbackContext):
-    """Uploads a video file directly."""
-    with open(output_file, 'rb') as video:
-        await context.bot.send_video(chat_id=update.effective_chat.id, video=video)
+async def upload_video(output_file, update: Update, context: CallbackContext, title: str, part_number: int):
+    """Uploads a video or audio file directly and sends a message indicating the part number."""
+    part_message = f"{title} part {part_number}"
+    
+    with open(output_file, 'rb') as media:
+        if output_file.endswith('.mp4'):
+            await context.bot.send_video(chat_id=update.effective_chat.id, video=media, caption=part_message)
+        else:
+            await context.bot.send_audio(chat_id=update.effective_chat.id, audio=media, caption=part_message)
+    
     os.remove(output_file)
-    logger.info(f"Deleted video file: {output_file}")
+    logger.info(f"Deleted file: {output_file}")
 
-async def split_and_upload_video(filepath, update: Update, context: CallbackContext):
+async def split_and_upload_video(filepath, update: Update, context: CallbackContext, title: str):
     """Splits the video into parts and uploads them."""
     logger.info(f"Splitting video: {filepath}")
 
     base_filename = os.path.splitext(filepath)[0]
-    split_output_format = f"{base_filename}_part_%03d.mp4" # Renaming split videos properly
+    split_output_format = f"{base_filename}_part_%03d.mp4" 
 
     try:
         command = [
@@ -111,7 +117,7 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
                 retries = 0
                 while retries < 3:
                     try:
-                        await upload_video(part_file, update, context)
+                        await upload_video(part_file, update, context, title, part_number)
                         break
                     except Exception as e:
                         retries += 1
@@ -150,7 +156,6 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
     audio_url = message
     logger.info(f"Downloading audio from: {audio_url}")
 
-    # yt-dlp options for audio
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -170,7 +175,7 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
             info_dict = ydl.extract_info(audio_url, download=True)
             logger.info(f"Successfully downloaded {audio_url}")
 
-            #title = info_dict.get('title', 'audio')
+            title = info_dict.get('title', 'audio')
             output_file = f'{DOWNLOAD_FOLDER}audio.mp3'
 
             if os.path.exists(output_file):
@@ -178,9 +183,9 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
 
                 if file_size > TELEGRAM_UPLOAD_LIMIT:
                     await update.message.reply_text("Audio is larger than 50MB. Splitting the audio into parts...")
-                    await split_and_upload_audio(output_file, update, context)
+                    await split_and_upload_audio(output_file, update, context, title)
                 else:
-                    await upload_audio(output_file, update, context)
+                    await upload_video(output_file, update, context, title, 0) 
             else:
                 await update.message.reply_text("Failed to find the downloaded audio file.")
                 logger.error("Failed to find the downloaded audio file.")
@@ -189,14 +194,7 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
         logger.error(f"Failed to download audio: {str(e)}")
         await update.message.reply_text(f"Failed to download the audio: {str(e)}")
 
-async def upload_audio(output_file, update: Update, context: CallbackContext):
-    """Uploads an audio file directly."""
-    with open(output_file, 'rb') as audio:
-        await context.bot.send_audio(chat_id=update.effective_chat.id, audio=audio)
-    os.remove(output_file)
-    logger.info(f"Deleted audio file: {output_file}")
-
-async def split_and_upload_audio(filepath, update: Update, context: CallbackContext):
+async def split_and_upload_audio(filepath, update: Update, context: CallbackContext, title: str):
     """Splits the audio into parts and uploads them."""
     logger.info(f"Splitting audio: {filepath}")
 
@@ -205,7 +203,8 @@ async def split_and_upload_audio(filepath, update: Update, context: CallbackCont
 
     try:
         command = [
-            'ffmpeg', '-i', filepath, '-f', 'segment', '-segment_time', AUDIO_CHUNK_LENGTH,
+            'ffmpeg', '-i', filepath, '-c', 'copy', '-map', '0',
+            '-f', 'segment', '-segment_time', CHUNK_LENGTH,
             '-reset_timestamps', '1', split_output_format
         ]
         subprocess.run(command, check=True)
@@ -218,7 +217,7 @@ async def split_and_upload_audio(filepath, update: Update, context: CallbackCont
                 retries = 0
                 while retries < 3:
                     try:
-                        await upload_audio(part_file, update, context)
+                        await upload_video(part_file, update, context, title, part_number)
                         break
                     except Exception as e:
                         retries += 1
@@ -232,7 +231,7 @@ async def split_and_upload_audio(filepath, update: Update, context: CallbackCont
             else:
                 break
 
-        os.remove(filepath)
+        os.remove(filepath)  
         logger.info(f"Deleted original audio file: {filepath}")
     except Exception as e:
         logger.error(f"Failed to split and upload audio: {str(e)}")
