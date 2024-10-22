@@ -15,6 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_FOLDER = './downloads/'
+CHUNK_LENGTH = '540' #10min is the sweet spot (under 50mb per chunk, so it doesn't split it recursively)
 
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
@@ -43,11 +44,12 @@ async def download_video(update: Update, context: CallbackContext) -> None:
     video_url = message
     logger.info(f"Downloading video from: {video_url}")
 
+    #quality etc
     ydl_opts = {
         'format': 'bestvideo[height<=480]+bestaudio[abr<=128]/best',
         'merge_output_format': 'mp4',
         'noplaylist': True,
-        'outtmpl': f'{DOWNLOAD_FOLDER}%(title)s.%(ext)s',
+        'outtmpl': f'{DOWNLOAD_FOLDER}video.%(ext)s', #'outtmpl': f'{DOWNLOAD_FOLDER}%(title)s.%(ext)s',
         'http_chunk_size': 1048576,
         'socket_timeout': 120,
         'verbose': True,
@@ -61,8 +63,9 @@ async def download_video(update: Update, context: CallbackContext) -> None:
             info_dict = ydl.extract_info(video_url, download=True)
             logger.info(f"Successfully downloaded {video_url}")
 
-            title = info_dict.get('title', 'video')
-            output_file = f'{DOWNLOAD_FOLDER}{title}.mp4'
+            #title = info_dict.get('title', 'video') #comment to fix parsing colons
+            #output_file = f'{DOWNLOAD_FOLDER}{title}.mp4'
+            output_file = f'{DOWNLOAD_FOLDER}video.mp4'
 
             if os.path.exists(output_file):
                 file_size = os.path.getsize(output_file)
@@ -92,12 +95,12 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
     logger.info(f"Splitting video: {filepath}")
 
     base_filename = os.path.splitext(filepath)[0]
-    split_output_format = f"{base_filename}_part_%03d.mp4"
+    split_output_format = f"{base_filename}_part_%03d.mp4" #renaming split videos properly
 
     try:
         command = [
             'ffmpeg', '-i', filepath, '-c', 'copy', '-map', '0',
-            '-f', 'segment', '-segment_time', '600',
+            '-f', 'segment', '-segment_time', CHUNK_LENGTH ,
             '-reset_timestamps', '1', split_output_format
         ]
         subprocess.run(command, check=True)
