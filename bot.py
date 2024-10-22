@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 DOWNLOAD_FOLDER = './downloads/'
 CHUNK_LENGTH = '540' #10min is the sweet spot (under 50mb per chunk, so it doesn't split it recursively)
+AUDIO_CHUNK_LENGTH = '1800' #30min for audio
 
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-TELEGRAM_UPLOAD_LIMIT = 49 * 1024 * 1024  #a bit under 50
+TELEGRAM_UPLOAD_LIMIT = 49 * 1024 * 1024  # a bit under 50MB
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Send me a YouTube link, and I'll download the video or audio for you!")
@@ -44,12 +45,11 @@ async def download_video(update: Update, context: CallbackContext) -> None:
     video_url = message
     logger.info(f"Downloading video from: {video_url}")
 
-    #quality etc
     ydl_opts = {
         'format': 'bestvideo[height<=480]+bestaudio[abr<=128]/best',
         'merge_output_format': 'mp4',
         'noplaylist': True,
-        'outtmpl': f'{DOWNLOAD_FOLDER}video.%(ext)s', #'outtmpl': f'{DOWNLOAD_FOLDER}%(title)s.%(ext)s',
+        'outtmpl': f'{DOWNLOAD_FOLDER}video.%(ext)s',
         'http_chunk_size': 1048576,
         'socket_timeout': 120,
         'verbose': True,
@@ -63,8 +63,6 @@ async def download_video(update: Update, context: CallbackContext) -> None:
             info_dict = ydl.extract_info(video_url, download=True)
             logger.info(f"Successfully downloaded {video_url}")
 
-            #title = info_dict.get('title', 'video') #comment to fix parsing colons
-            #output_file = f'{DOWNLOAD_FOLDER}{title}.mp4'
             output_file = f'{DOWNLOAD_FOLDER}video.mp4'
 
             if os.path.exists(output_file):
@@ -95,12 +93,12 @@ async def split_and_upload_video(filepath, update: Update, context: CallbackCont
     logger.info(f"Splitting video: {filepath}")
 
     base_filename = os.path.splitext(filepath)[0]
-    split_output_format = f"{base_filename}_part_%03d.mp4" #renaming split videos properly
+    split_output_format = f"{base_filename}_part_%03d.mp4" # Renaming split videos properly
 
     try:
         command = [
             'ffmpeg', '-i', filepath, '-c', 'copy', '-map', '0',
-            '-f', 'segment', '-segment_time', CHUNK_LENGTH ,
+            '-f', 'segment', '-segment_time', CHUNK_LENGTH,
             '-reset_timestamps', '1', split_output_format
         ]
         subprocess.run(command, check=True)
@@ -152,6 +150,7 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
     audio_url = message
     logger.info(f"Downloading audio from: {audio_url}")
 
+    # yt-dlp options for audio
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -159,7 +158,7 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'outtmpl': f'{DOWNLOAD_FOLDER}%(title)s.%(ext)s',
+        'outtmpl': f'{DOWNLOAD_FOLDER}audio.%(ext)s',
         'verbose': True,
     }
 
@@ -171,14 +170,17 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
             info_dict = ydl.extract_info(audio_url, download=True)
             logger.info(f"Successfully downloaded {audio_url}")
 
-            title = info_dict.get('title', 'audio')
-            output_file = f'{DOWNLOAD_FOLDER}{title}.mp3'
+            #title = info_dict.get('title', 'audio')
+            output_file = f'{DOWNLOAD_FOLDER}audio.mp3'
 
             if os.path.exists(output_file):
-                with open(output_file, 'rb') as audio:
-                    await context.bot.send_audio(chat_id=update.effective_chat.id, audio=audio)
-                os.remove(output_file)
-                logger.info(f"Deleted audio file: {output_file}")
+                file_size = os.path.getsize(output_file)
+
+                if file_size > TELEGRAM_UPLOAD_LIMIT:
+                    await update.message.reply_text("Audio is larger than 50MB. Splitting the audio into parts...")
+                    await split_and_upload_audio(output_file, update, context)
+                else:
+                    await upload_audio(output_file, update, context)
             else:
                 await update.message.reply_text("Failed to find the downloaded audio file.")
                 logger.error("Failed to find the downloaded audio file.")
@@ -186,7 +188,55 @@ async def download_audio(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         logger.error(f"Failed to download audio: {str(e)}")
         await update.message.reply_text(f"Failed to download the audio: {str(e)}")
-        os.remove(output_file)
+
+async def upload_audio(output_file, update: Update, context: CallbackContext):
+    """Uploads an audio file directly."""
+    with open(output_file, 'rb') as audio:
+        await context.bot.send_audio(chat_id=update.effective_chat.id, audio=audio)
+    os.remove(output_file)
+    logger.info(f"Deleted audio file: {output_file}")
+
+async def split_and_upload_audio(filepath, update: Update, context: CallbackContext):
+    """Splits the audio into parts and uploads them."""
+    logger.info(f"Splitting audio: {filepath}")
+
+    base_filename = os.path.splitext(filepath)[0]
+    split_output_format = f"{base_filename}_part_%03d.mp3"
+
+    try:
+        command = [
+            'ffmpeg', '-i', filepath, '-f', 'segment', '-segment_time', AUDIO_CHUNK_LENGTH,
+            '-reset_timestamps', '1', split_output_format
+        ]
+        subprocess.run(command, check=True)
+        logger.info("Audio splitting completed.")
+
+        part_number = 0
+        while True:
+            part_file = split_output_format % part_number
+            if os.path.exists(part_file):
+                retries = 0
+                while retries < 3:
+                    try:
+                        await upload_audio(part_file, update, context)
+                        break
+                    except Exception as e:
+                        retries += 1
+                        logger.warning(f"Error uploading {part_file}: {str(e)}, retrying ({retries}/3)...")
+                        await asyncio.sleep(2)
+                if retries == 3:
+                    logger.error(f"Failed to upload {part_file} after 3 retries. Deleting...")
+                    os.remove(part_file)
+                    await update.message.reply_text(f"Failed to upload {part_file} after 3 retries, deleting the file.")
+                part_number += 1
+            else:
+                break
+
+        os.remove(filepath)
+        logger.info(f"Deleted original audio file: {filepath}")
+    except Exception as e:
+        logger.error(f"Failed to split and upload audio: {str(e)}")
+        await update.message.reply_text(f"Failed to split the audio: {str(e)}")
 
 def main():
     load_dotenv()
