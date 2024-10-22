@@ -19,7 +19,7 @@ DOWNLOAD_FOLDER = './downloads/'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  #50MB, but it's a rough estimate
+TELEGRAM_UPLOAD_LIMIT = 49 * 1024 * 1024  #a bit under 50
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Send me a YouTube link, and I'll download the video or audio for you!")
