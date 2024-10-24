@@ -9,6 +9,6 @@ Download a video using `/download_video <video_url>`.
 Download audio using `/download_audio <video_url>`.
 
 ## Issues
-Files are saved as `audio` or `video`, due to the bot not being able to parse titles with special characters.
-Processing long audio files takes a long time.
-Sometimes uploading the first segment of split audio/video fails (works on the 2nd try).
+- Files are saved as `audio` or `video`, due to the bot not being able to parse titles with special characters,
+- Processing long audio files takes a long time,
+- Sometimes uploading the first segment of split audio/video fails (works on the 2nd try).
