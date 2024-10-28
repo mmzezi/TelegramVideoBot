@@ -204,7 +204,7 @@ async def split_and_upload_audio(filepath, update: Update, context: CallbackCont
     try:
         command = [
             'ffmpeg', '-i', filepath, '-c', 'copy', '-map', '0',
-            '-f', 'segment', '-segment_time', CHUNK_LENGTH,
+            '-f', 'segment', '-segment_time', '1620', 
             '-reset_timestamps', '1', split_output_format
         ]
         subprocess.run(command, check=True)
@@ -241,7 +241,6 @@ def main():
     load_dotenv()
     api_key = os.getenv('API_KEY')
     TOKEN = api_key  #replace with bot token, remove above two lines
-    print(TOKEN)
     application = Application.builder().token(TOKEN).read_timeout(300).write_timeout(300).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("download_video", download_video))
